@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clanker Orchestrator</title>
+    <style>
+        :root {
+            --bg: #12141a;
+            --panel: #1b1e26;
+            --line: #2c313d;
+            --text: #e6e8ee;
+            --muted: #949cb0;
+            --accent: #6ea8fe;
+            --like: #6ee7a8;
+            --dislike: #ff8f8f;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+        }
+        header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        header h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+        header .state { color: var(--muted); font-size: 12px; }
+        header .state b { color: var(--text); font-weight: 600; }
+        main {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 16px;
+            padding: 16px 24px;
+            align-items: start;
+        }
+        @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+        section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        h2 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--muted);
+            margin: 0 0 12px;
+        }
+        label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+        input[type=text] {
+            width: 100%;
+            padding: 8px 10px;
+            background: #0e1015;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--text);
+            font: inherit;
+        }
+        input[type=text]:focus { outline: none; border-color: var(--accent); }
+        .field { margin-bottom: 12px; }
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+        button {
+            padding: 8px 12px;
+            background: var(--accent);
+            color: #0b0d12;
+            border: none;
+            border-radius: 6px;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        button.ghost {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--line);
+            font-weight: 400;
+        }
+        ul { list-style: none; margin: 0; padding: 0; }
+        li.agent {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        li.agent + li.agent { margin-top: 6px; }
+        li.agent:hover { border-color: var(--accent); }
+        li.agent.active { border-color: var(--accent); background: #202634; }
+        li.agent .meta { color: var(--muted); font-size: 11px; }
+        .empty { color: var(--muted); font-style: italic; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            font-size: 12px;
+        }
+        .chip.like { color: var(--like); border-color: #2c5a43; }
+        .chip.dislike { color: var(--dislike); border-color: #5a2c2c; }
+        .chip button {
+            background: none;
+            color: inherit;
+            border: none;
+            padding: 0;
+            font-size: 14px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        pre {
+            margin: 12px 0 0;
+            padding: 12px;
+            background: #0e1015;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            max-height: 320px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        pre:empty { display: none; }
+        .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+        .status.err { color: var(--dislike); }
+        .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Clanker Orchestrator</h1>
+    <span class="state">opencode <b id="ocState">unknown</b></span>
+    <span style="flex:1"></span>
+    <button id="ocStartBtn" class="ghost">Start</button>
+    <button id="ocStopBtn" class="ghost">Stop</button>
+</header>
+
+<main>
+    <section>
+        <h2>New agent</h2>
+        <div class="field">
+            <label for="agentName">Name</label>
+            <input type="text" id="agentName" placeholder="Clanker">
+        </div>
+        <div class="field row">
+            <div>
+                <label for="agentLikes">Likes</label>
+                <input type="text" id="agentLikes" placeholder="eating, sleeping">
+            </div>
+            <div>
+                <label for="agentDislikes">Dislikes</label>
+                <input type="text" id="agentDislikes" placeholder="mondays">
+            </div>
+        </div>
+        <div class="row">
+            <button id="createBtn">Create</button>
+        </div>
+        <div class="status" id="createStatus"></div>
+
+        <h2 style="margin-top:24px">Agents</h2>
+        <ul id="agentList"></ul>
+    </section>
+
+    <section id="detail" hidden>
+        <h2>Selected agent</h2>
+        <div class="chips" id="detailChips"></div>
+
+        <div class="row" style="margin-bottom:12px">
+            <div>
+                <label for="likeInput">Add like</label>
+                <input type="text" id="likeInput" placeholder="long walks">
+            </div>
+            <button id="addLikeBtn">Add</button>
+            <div>
+                <label for="dislikeInput">Add dislike</label>
+                <input type="text" id="dislikeInput" placeholder="meetings">
+            </div>
+            <button id="addDislikeBtn">Add</button>
+        </div>
+
+        <h2>Send to agent</h2>
+        <div class="field">
+            <label for="commandInput">Prompt</label>
+            <input type="text" id="commandInput" placeholder="create a Java class that reverses a string">
+        </div>
+        <div class="row">
+            <button id="runBtn">Send</button>
+            <button id="clearBtn" class="ghost">Clear</button>
+        </div>
+        <div class="status" id="runStatus"></div>
+        <pre id="output"></pre>
+        <div class="hint">Runs through the opencode server on :4096. Each agent keeps its own opencode session, so it remembers earlier turns. Editing files requires opencode permissions.</div>
+    </section>
+
+    <section id="detailEmpty">
+        <h2>Selected agent</h2>
+        <p class="empty">Create an agent, then click it to select it.</p>
+    </section>
+</main>
+
+<script>
+    const splitList = (value) => value.split(',').map((s) => s.trim()).filter(Boolean);
+    const el = (id) => document.getElementById(id);
+
+    let agents = [];
+    let selectedId = null;
+
+    async function api(path, options) {
+        const response = await fetch(path, options);
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error((body && body.message) || response.statusText);
+        }
+        return body;
+    }
+
+    async function refreshOpenCode() {
+        try {
+            const status = await api('/OpenCode/status');
+            el('ocState').textContent = status.running ? 'running' : 'stopped';
+        } catch (e) {
+            el('ocState').textContent = 'unavailable';
+        }
+    }
+
+    async function openCodeAction(action, button) {
+        button.disabled = true;
+        el('ocState').textContent = action + 'ing...';
+        try {
+            await api('/OpenCode/' + action, { method: 'POST' });
+        } catch (e) {
+            el('ocState').textContent = e.message;
+        }
+        button.disabled = false;
+        setTimeout(refreshOpenCode, 1500);
+    }
+
+    el('ocStartBtn').onclick = (e) => openCodeAction('start', e.target);
+    el('ocStopBtn').onclick = (e) => openCodeAction('stop', e.target);
+
+    function renderList() {
+        const list = el('agentList');
+        list.innerHTML = '';
+        if (agents.length === 0) {
+            const li = document.createElement('li');
+            li.className = 'empty';
+            li.textContent = 'No agents yet.';
+            list.appendChild(li);
+            return;
+        }
+        agents.forEach((agent) => {
+            const li = document.createElement('li');
+            li.className = 'agent' + (agent.id === selectedId ? ' active' : '');
+            li.innerHTML = '<span></span><span class="meta"></span>';
+            li.children[0].textContent = agent.name;
+            li.children[1].textContent = agent.likes.length + ' likes / ' + agent.dislikes.length + ' dislikes';
+            li.onclick = () => select(agent.id);
+            list.appendChild(li);
+        });
+    }
+
+    function renderDetail() {
+        const agent = agents.find((a) => a.id === selectedId);
+        el('detailEmpty').hidden = !!agent;
+        el('detail').hidden = !agent;
+        if (!agent) return;
+
+        const chips = el('detailChips');
+        chips.innerHTML = '';
+        agent.likes.forEach((item) => chips.appendChild(chip(item, 'like', 'likes')));
+        agent.dislikes.forEach((item) => chips.appendChild(chip(item, 'dislike', 'dislikes')));
+        if (agent.likes.length === 0 && agent.dislikes.length === 0) {
+            const span = document.createElement('span');
+            span.className = 'chip';
+            span.textContent = 'no likes or dislikes yet';
+            chips.appendChild(span);
+        }
+    }
+
+    function chip(item, kind, listName) {
+        const span = document.createElement('span');
+        span.className = 'chip ' + kind;
+        const text = document.createElement('span');
+        text.textContent = item;
+        const remove = document.createElement('button');
+        remove.textContent = '×';
+        remove.title = 'Remove';
+        remove.onclick = () => removePreference(item, listName);
+        span.append(text, remove);
+        return span;
+    }
+
+    async function removePreference(item, listName) {
+        await mutate(() => api('/Agent/' + selectedId + '/' + (listName === 'likes' ? 'like' : 'dislike'), {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item })
+        }));
+    }
+
+    async function mutate(action) {
+        try {
+            await action();
+            await load();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function load() {
+        agents = await api('/Agent');
+        if (selectedId !== null && !agents.some((a) => a.id === selectedId)) {
+            selectedId = null;
+        }
+        renderList();
+        renderDetail();
+    }
+
+    function select(id) {
+        selectedId = id;
+        renderList();
+        renderDetail();
+    }
+
+    function setStatus(node, message, isError) {
+        node.textContent = message;
+        node.className = 'status' + (isError ? ' err' : '');
+    }
+
+    el('createBtn').onclick = () => {
+        const status = el('createStatus');
+        setStatus(status, 'Creating...', false);
+        api('/Agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: el('agentName').value,
+                likes: splitList(el('agentLikes').value),
+                dislikes: splitList(el('agentDislikes').value)
+            })
+        })
+            .then((agent) => {
+                el('agentName').value = '';
+                el('agentLikes').value = '';
+                el('agentDislikes').value = '';
+                setStatus(status, 'Created ' + agent.name, false);
+                return load();
+            })
+            .then(() => {
+                const agent = agents[agents.length - 1];
+                if (agent) select(agent.id);
+            })
+            .catch((e) => setStatus(status, e.message, true));
+    };
+
+    function addPreference(listName) {
+        const input = listName === 'likes' ? el('likeInput') : el('dislikeInput');
+        const item = input.value.trim();
+        if (!item) return;
+        input.value = '';
+        mutate(() => api('/Agent/' + selectedId + '/' + (listName === 'likes' ? 'like' : 'dislike'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item })
+        }));
+    }
+
+    el('addLikeBtn').onclick = () => addPreference('likes');
+    el('addDislikeBtn').onclick = () => addPreference('dislikes');
+    el('likeInput').onkeydown = (e) => { if (e.key === 'Enter') addPreference('likes'); };
+    el('dislikeInput').onkeydown = (e) => { if (e.key === 'Enter') addPreference('dislikes'); };
+
+    el('runBtn').onclick = () => {
+        const command = el('commandInput').value.trim();
+        if (!command) return;
+        const status = el('runStatus');
+        const btn = el('runBtn');
+        setStatus(status, 'Waiting for opencode...', false);
+        btn.disabled = true;
+        api('/Agent/' + selectedId + '/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command })
+        })
+            .then((result) => {
+                el('output').textContent = result.reply;
+                const tools = result.tools && result.tools.length ? ' | tools: ' + result.tools.join(', ') : '';
+                setStatus(status, (result.error ? 'error: ' + result.error : 'ok') + tools, !!result.error);
+            })
+            .catch((e) => {
+                el('output').textContent = '';
+                setStatus(status, e.message, true);
+            })
+            .finally(() => { btn.disabled = false; });
+    };
+
+    el('commandInput').onkeydown = (e) => { if (e.key === 'Enter') el('runBtn').click(); };
+    el('clearBtn').onclick = () => { el('output').textContent = ''; };
+
+    load().catch((e) => setStatus(el('createStatus'), e.message, true));
+    refreshOpenCode();
+</script>
+</body>
+</html>
