@@ -1,11 +1,11 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.opencode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
 
-@Component 
+@Component
 public class OpenCodeManager {
 
     ProcessBuilder builder;
@@ -13,13 +13,13 @@ public class OpenCodeManager {
 
     public OpenCodeManager() {
         try {
-            
+
             List<String> list = new ArrayList<String>();
-            list.add(    "C:\\Users\\kalla\\AppData\\Roaming\\npm\\opencode.cmd");
-            list.add(    "serve");
-            list.add(    "--port");
-            list.add(    "4096");
-            
+            list.add("C:\\Users\\kalla\\AppData\\Roaming\\npm\\opencode.cmd");
+            list.add("serve");
+            list.add("--port");
+            list.add("4096");
+
             ProcessBuilder builder = new ProcessBuilder(list);
             this.builder = builder;
 

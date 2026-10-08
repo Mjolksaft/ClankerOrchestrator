@@ -1,4 +1,10 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.agent;
+
+import com.example.ClankerOrchestrator.dto.CommandResult;
+import com.example.ClankerOrchestrator.opencode.OpenCodeClient;
+import com.example.ClankerOrchestrator.opencode.StubOpenCodeServer;
+import com.example.ClankerOrchestrator.exception.AgentBusyException;
+import com.example.ClankerOrchestrator.exception.OpenCodeUnavailableException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,6 +15,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +38,7 @@ class AgentCommandServiceTests {
         server = new StubOpenCodeServer();
         agentService = new AgentService();
         openCodeClient = new OpenCodeClient(JsonMapper.builder().build(), "127.0.0.1", server.Port(), "", 10);
-        commandService = new AgentCommandService(agentService, openCodeClient);
+        commandService = new AgentCommandService(agentService, openCodeClient, new AgentSessionState());
     }
 
     @AfterEach
@@ -129,5 +139,57 @@ class AgentCommandServiceTests {
 
         OpenCodeClient dead = new OpenCodeClient(JsonMapper.builder().build(), "127.0.0.1", port, "", 2);
         assertFalse(dead.IsHealthy());
+    }
+
+    @Test
+    void SecondCommandForSameAgentWhileRunningIsRejected() throws Exception {
+        server.SetMessageDelay(400);
+        long id = NewAgent();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<CommandResult> first = pool.submit(() -> commandService.Run(id, "first"));
+
+            AwaitMessageRequest();
+
+            AgentBusyException busy = assertThrows(AgentBusyException.class, () -> commandService.Run(id, "second"));
+            assertTrue(busy.getMessage().contains("already running"));
+
+            assertEquals("hello", first.get(5, TimeUnit.SECONDS).reply());
+
+            CommandResult after = commandService.Run(id, "third");
+            assertEquals("hello", after.reply());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void DifferentAgentsRunConcurrently() throws Exception {
+        server.SetMessageDelay(300);
+        long firstAgent = NewAgent();
+        long secondAgent = NewAgent();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<CommandResult> first = pool.submit(() -> commandService.Run(firstAgent, "one"));
+            Future<CommandResult> second = pool.submit(() -> commandService.Run(secondAgent, "two"));
+
+            assertEquals("hello", first.get(5, TimeUnit.SECONDS).reply());
+            assertEquals("hello", second.get(5, TimeUnit.SECONDS).reply());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private void AwaitMessageRequest() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while(System.currentTimeMillis() < deadline) {
+            for(String request : server.requests) {
+                if(request.contains("/message")) {
+                    return;
+                }
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("opencode never received a message request");
     }
 }

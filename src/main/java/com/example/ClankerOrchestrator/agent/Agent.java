@@ -1,4 +1,4 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.agent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +10,7 @@ public class Agent {
     private final List<String> likes = new ArrayList<String>();
     private final List<String> dislikes = new ArrayList<String>();
     private String sessionID;
+    private AgentState state = AgentState.IDLE;
 
     public Agent(long id, String name) {
         this.id = id;
@@ -30,6 +31,14 @@ public class Agent {
 
     public void setSessionID(String sessionID) {
         this.sessionID = sessionID;
+    }
+
+    public AgentState getState() {
+        return state;
+    }
+
+    public void setState(AgentState state) {
+        this.state = state;
     }
 
     public List<String> getLikes() {

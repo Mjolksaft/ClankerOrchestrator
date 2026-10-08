@@ -137,6 +137,21 @@
         .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
         .status.err { color: var(--dislike); }
         .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+        .perm {
+            border: 1px solid #5a4a2c;
+            background: #201c14;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .perm .perm-info { font-size: 13px; margin-bottom: 8px; word-break: break-all; }
+        .perm .perm-info b { color: var(--accent); font-weight: 600; }
+        .perm .perm-resources { color: var(--muted); font-size: 12px; }
+        .perm .perm-actions { display: flex; gap: 8px; }
+        .perm .perm-actions button { padding: 5px 10px; font-size: 12px; }
+        .perm .perm-actions button.reject { background: var(--dislike); color: #0b0d12; }
+        .perm .perm-actions button:disabled { opacity: .5; cursor: not-allowed; }
+        .perm-waiting { color: var(--muted); font-style: italic; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -191,6 +206,11 @@
             <button id="addDislikeBtn">Add</button>
         </div>
 
+        <h2 id="permHeading" hidden>Permission required</h2>
+        <div id="permBox" hidden>
+            <div id="permList"></div>
+        </div>
+
         <h2>Send to agent</h2>
         <div class="field">
             <label for="commandInput">Prompt</label>
@@ -202,7 +222,7 @@
         </div>
         <div class="status" id="runStatus"></div>
         <pre id="output"></pre>
-        <div class="hint">Runs through the opencode server on :4096. Each agent keeps its own opencode session, so it remembers earlier turns. Editing files requires opencode permissions.</div>
+        <div class="hint">Runs through the opencode server on :4096. Each agent keeps its own opencode session, so it remembers earlier turns. When a tool needs permission it appears above - allow once, always allow, or reject.</div>
     </section>
 
     <section id="detailEmpty">
@@ -217,14 +237,42 @@
 
     let agents = [];
     let selectedId = null;
+    const runningAgents = new Set();
+    const runInfo = {};
 
     async function api(path, options) {
         const response = await fetch(path, options);
-        const body = await response.json().catch(() => null);
+        const text = await response.text();
+        let body = null;
+        try {
+            body = text ? JSON.parse(text) : null;
+        } catch (e) {
+            body = null;
+        }
         if (!response.ok) {
-            throw new Error((body && body.message) || response.statusText);
+            throw new Error((body && body.message) || text || response.statusText);
         }
         return body;
+    }
+
+    function updateRunButton() {
+        el('runBtn').disabled = selectedId === null || runningAgents.has(selectedId);
+    }
+
+    function setRunInfo(agentId, status, isError, reply) {
+        const previous = runInfo[agentId] || {};
+        runInfo[agentId] = {
+            status: status,
+            isError: isError,
+            reply: reply === undefined ? (previous.reply || '') : reply
+        };
+        if (selectedId === agentId) applyRunInfo(agentId);
+    }
+
+    function applyRunInfo(agentId) {
+        const info = runInfo[agentId] || { status: '', isError: false, reply: '' };
+        setStatus(el('runStatus'), info.status, info.isError);
+        el('output').textContent = info.reply || '';
     }
 
     async function refreshOpenCode() {
@@ -248,8 +296,38 @@
         setTimeout(refreshOpenCode, 1500);
     }
 
+    async function refreshStates() {
+        if (agents.length === 0) return;
+        for (let i = 0; i < agents.length; i++) {
+            try {
+                const st = await api('/Agent/' + agents[i].id + '/state');
+                agents[i].sessionID = st.sessionId;
+                agents[i].state = st.state;
+                agents[i].permissions = st.permissions || [];
+            } catch (e) {}
+        }
+        renderList();
+        renderDetail();
+    }
+
     el('ocStartBtn').onclick = (e) => openCodeAction('start', e.target);
     el('ocStopBtn').onclick = (e) => openCodeAction('stop', e.target);
+
+    async function fetchState(id) {
+        return await api('/Agent/' + id + '/state');
+    }
+
+    function formatState(state) {
+        if (!state) return '';
+        const s = state.toUpperCase();
+        if (s === 'NEEDS_PERMISSION') return ' !';
+        if (s === 'THINKING') return ' ?';
+        if (s === 'WRITING') return ' ▸';
+        if (s === 'WAITING') return ' …';
+        if (s === 'FINISHED') return ' ✓';
+        if (s === 'IDLE') return '';
+        return ' ' + state.toLowerCase();
+    }
 
     function renderList() {
         const list = el('agentList');
@@ -266,8 +344,18 @@
             li.className = 'agent' + (agent.id === selectedId ? ' active' : '');
             li.innerHTML = '<span></span><span class="meta"></span>';
             li.children[0].textContent = agent.name;
-            li.children[1].textContent = agent.likes.length + ' likes / ' + agent.dislikes.length + ' dislikes';
-            li.onclick = () => select(agent.id);
+            const stateSpan = li.children[1];
+            stateSpan.innerHTML = '<span class="meta-text"></span> <span class="meta-state"></span>';
+            const stateText = stateSpan.querySelector(".meta-text");
+            const stateBadge = stateSpan.querySelector(".meta-state");
+            stateText.textContent = agent.likes.length + ' likes / ' + agent.dislikes.length + ' dislikes';
+            stateBadge.textContent = formatState(agent.state);
+            if (agent.id === selectedId) {
+                fetchState(agent.id).then(st => {
+                    stateBadge.textContent = formatState(st.state);
+                }).catch(() => {});
+            }
+            li.onclick = () => { select(agent.id); renderList(); };
             list.appendChild(li);
         });
     }
@@ -276,6 +364,7 @@
         const agent = agents.find((a) => a.id === selectedId);
         el('detailEmpty').hidden = !!agent;
         el('detail').hidden = !agent;
+        updateRunButton();
         if (!agent) return;
 
         const chips = el('detailChips');
@@ -288,6 +377,86 @@
             span.textContent = 'no likes or dislikes yet';
             chips.appendChild(span);
         }
+
+        renderPermissions(agent);
+        applyRunInfo(agent.id);
+        updateRunButton();
+    }
+
+    function renderPermissions(agent) {
+        const heading = el('permHeading');
+        const box = el('permBox');
+        const list = el('permList');
+        const permissions = agent.permissions || [];
+        const waiting = agent.state === 'NEEDS_PERMISSION';
+
+        heading.hidden = permissions.length === 0 && !waiting;
+        box.hidden = permissions.length === 0 && !waiting;
+        list.innerHTML = '';
+
+        if (permissions.length === 0) {
+            const span = document.createElement('span');
+            span.className = 'perm-waiting';
+            span.textContent = 'Waiting for a permission request...';
+            list.appendChild(span);
+            return;
+        }
+
+        permissions.forEach((permission) => list.appendChild(permissionCard(agent, permission)));
+    }
+
+    function permissionCard(agent, permission) {
+        const card = document.createElement('div');
+        card.className = 'perm';
+
+        const info = document.createElement('div');
+        info.className = 'perm-info';
+        const name = document.createElement('b');
+        name.textContent = permission.permission || 'permission';
+        info.appendChild(name);
+        if (permission.description) {
+            info.appendChild(document.createTextNode(' — ' + permission.description));
+        }
+
+        card.appendChild(info);
+
+        if (permission.resources && permission.resources.length) {
+            const resources = document.createElement('div');
+            resources.className = 'perm-resources';
+            resources.textContent = permission.resources.join(', ');
+            card.appendChild(resources);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'perm-actions';
+        actions.appendChild(permButton('Allow once', 'once', permission.requestId));
+        actions.appendChild(permButton('Always allow', 'always', permission.requestId));
+        actions.appendChild(permButton('Reject', 'reject', permission.requestId, 'reject'));
+        card.appendChild(actions);
+
+        return card;
+    }
+
+    function permButton(label, reply, requestId, extraClass) {
+        const button = document.createElement('button');
+        button.textContent = label;
+        if (extraClass) button.className = extraClass;
+        button.onclick = () => replyPermission(requestId, reply, button);
+        return button;
+    }
+
+    async function replyPermission(requestId, reply, button) {
+        if (button) button.disabled = true;
+        try {
+            await api('/Agent/' + selectedId + '/permission', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId, reply })
+            });
+        } catch (e) {
+            console.error(e);
+        }
+        await refreshStates();
     }
 
     function chip(item, kind, listName) {
@@ -384,34 +553,45 @@
     el('dislikeInput').onkeydown = (e) => { if (e.key === 'Enter') addPreference('dislikes'); };
 
     el('runBtn').onclick = () => {
+        const agentId = selectedId;
+        if (agentId === null) return;
         const command = el('commandInput').value.trim();
         if (!command) return;
-        const status = el('runStatus');
-        const btn = el('runBtn');
-        setStatus(status, 'Waiting for opencode...', false);
-        btn.disabled = true;
-        api('/Agent/' + selectedId + '/command', {
+        if (runningAgents.has(agentId)) return;
+
+        runningAgents.add(agentId);
+        updateRunButton();
+        setRunInfo(agentId, 'Waiting for opencode...', false, '');
+        api('/Agent/' + agentId + '/command', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command })
         })
             .then((result) => {
-                el('output').textContent = result.reply;
                 const tools = result.tools && result.tools.length ? ' | tools: ' + result.tools.join(', ') : '';
-                setStatus(status, (result.error ? 'error: ' + result.error : 'ok') + tools, !!result.error);
+                setRunInfo(agentId, (result.error ? 'error: ' + result.error : 'ok') + tools, !!result.error, result.reply);
             })
             .catch((e) => {
-                el('output').textContent = '';
-                setStatus(status, e.message, true);
+                setRunInfo(agentId, e.message, true, '');
             })
-            .finally(() => { btn.disabled = false; });
+            .finally(() => {
+                runningAgents.delete(agentId);
+                updateRunButton();
+                refreshStates();
+            });
     };
 
     el('commandInput').onkeydown = (e) => { if (e.key === 'Enter') el('runBtn').click(); };
-    el('clearBtn').onclick = () => { el('output').textContent = ''; };
+    el('clearBtn').onclick = () => {
+        if (selectedId === null) return;
+        const info = runInfo[selectedId] || {};
+        setRunInfo(selectedId, info.status || '', !!info.isError, '');
+    };
 
     load().catch((e) => setStatus(el('createStatus'), e.message, true));
     refreshOpenCode();
+    setInterval(refreshOpenCode, 1500);
+    setInterval(refreshStates, 1000);
 </script>
 </body>
 </html>

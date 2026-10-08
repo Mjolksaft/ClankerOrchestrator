@@ -1,4 +1,14 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.agent;
+
+import com.example.ClankerOrchestrator.dto.AgentStateDto;
+import com.example.ClankerOrchestrator.dto.CommandRequest;
+import com.example.ClankerOrchestrator.dto.CommandResult;
+import com.example.ClankerOrchestrator.dto.CreateAgentRequest;
+import com.example.ClankerOrchestrator.exception.AgentBusyException;
+import com.example.ClankerOrchestrator.exception.OpenCodeUnavailableException;
+import com.example.ClankerOrchestrator.dto.PermissionDto;
+import com.example.ClankerOrchestrator.dto.PermissionReplyRequest;
+import com.example.ClankerOrchestrator.dto.PreferenceRequest;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -14,27 +24,35 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController 
+@RestController
 @RequestMapping("/Agent")
 public class AgentController {
 
     private final AgentService agentService;
     private final AgentCommandService agentCommandService;
+    private final AgentSessionState agentSessionState;
+    private final AgentPermissionService agentPermissionService;
 
-    public AgentController(AgentService agentService, AgentCommandService agentCommandService) {
+    public AgentController(
+            AgentService agentService,
+            AgentCommandService agentCommandService,
+            AgentSessionState agentSessionState,
+            AgentPermissionService agentPermissionService) {
         this.agentService = agentService;
         this.agentCommandService = agentCommandService;
+        this.agentSessionState = agentSessionState;
+        this.agentPermissionService = agentPermissionService;
     }
 
     @PostMapping
     public ResponseEntity<Agent> CreateAgent(@RequestBody CreateAgentRequest request) {
         Agent agent = agentService.CreateAgent(request.name());
 
-        if(request.likes() != null) {
+        if (request.likes() != null) {
             request.likes().forEach(item -> agentService.Like(agent.getId(), item));
         }
 
-        if(request.dislikes() != null) {
+        if (request.dislikes() != null) {
             request.dislikes().forEach(item -> agentService.Dislike(agent.getId(), item));
         }
 
@@ -91,6 +109,29 @@ public class AgentController {
         return agentCommandService.Run(id, request.command());
     }
 
+    @GetMapping("/{id}/state")
+    public ResponseEntity<AgentStateDto> GetState(@PathVariable long id) {
+        Agent agent = agentService.GetAgent(id);
+        AgentState state = agent.getState();
+        if (agent.getSessionID() != null) {
+            state = agentSessionState.GetStateForSession(agent.getSessionID());
+            agent.setState(state);
+        }
+        return ResponseEntity
+                .ok(new AgentStateDto(id, agent.getSessionID(), state, agentPermissionService.Pending(id)));
+    }
+
+    @GetMapping("/{id}/permission")
+    public ResponseEntity<List<PermissionDto>> GetPermissions(@PathVariable long id) {
+        return ResponseEntity.ok(agentPermissionService.Pending(id));
+    }
+
+    @PostMapping("/{id}/permission")
+    public ResponseEntity<List<PermissionDto>> ReplyPermission(@PathVariable long id,
+            @RequestBody PermissionReplyRequest request) {
+        return ResponseEntity.ok(agentPermissionService.Reply(id, request));
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<String> HandleNoSuchElement(NoSuchElementException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(exception.getMessage());
@@ -109,5 +150,10 @@ public class AgentController {
     @ExceptionHandler(OpenCodeUnavailableException.class)
     public ResponseEntity<String> HandleOpenCodeUnavailable(OpenCodeUnavailableException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(exception.getMessage());
+    }
+
+    @ExceptionHandler(AgentBusyException.class)
+    public ResponseEntity<String> HandleAgentBusy(AgentBusyException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(exception.getMessage());
     }
 }

@@ -1,4 +1,6 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.opencode;
+
+import com.example.ClankerOrchestrator.dto.OpenCodeStatus;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

@@ -1,4 +1,4 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

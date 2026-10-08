@@ -1,4 +1,4 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.exception;
 
 public class OpenCodeUnavailableException extends RuntimeException {
 

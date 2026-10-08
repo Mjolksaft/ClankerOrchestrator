@@ -1,4 +1,6 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.opencode;
+
+import com.example.ClankerOrchestrator.exception.OpenCodeUnavailableException;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -115,6 +118,45 @@ public class OpenCodeClient {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    public void ReplyPermission(String sessionId, String requestId, String reply, String message) {
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("reply", reply);
+        if(message != null && !message.isBlank()) {
+            body.put("message", message);
+        }
+
+        String id = Encode(requestId);
+
+        HttpResponse<String> response = Post("/permission/" + id + "/reply", body);
+        if(response.statusCode() != 404) {
+            RequirePermissionReply(response);
+            return;
+        }
+
+        response = Post("/api/session/" + Encode(sessionId) + "/permission/" + id + "/reply", body);
+        if(response.statusCode() != 404) {
+            RequirePermissionReply(response);
+            return;
+        }
+
+        response = Post("/session/" + Encode(sessionId) + "/permissions/" + id, Map.of("response", reply));
+        if(response.statusCode() == 404) {
+            throw new NoSuchElementException("permission request " + requestId + " is no longer pending");
+        }
+
+        RequirePermissionReply(response);
+    }
+
+    private void RequirePermissionReply(HttpResponse<String> response) {
+        if(response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("opencode rejected the permission reply: " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    private String Encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private void Add(List<String> tools, String tool) {

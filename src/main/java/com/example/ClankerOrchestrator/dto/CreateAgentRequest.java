@@ -1,4 +1,4 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.dto;
 
 import java.util.List;
 

@@ -1,4 +1,4 @@
-package com.example.ClankerOrchestrator;
+package com.example.ClankerOrchestrator.dto;
 
 public record OpenCodeStatus(boolean running) {
 }
